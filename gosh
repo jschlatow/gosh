@@ -18,6 +18,19 @@
 #                           #
 #############################
 
+### ESCAPE SPECIAL CHARACTERS ###
+proc escape_latex { string } {
+	regsub -all {\^} $string "\\^{ }" string
+	regsub -all {_} $string "\\_" string
+	regsub -all {#} $string "\\#" string
+	regsub -all {%} $string "\\%" string
+	regsub -all {\$} $string "\\$" string
+	regsub -all {&} $string {\\&} string
+	regsub -all {~} $string {\\textasciitilde{}} string
+	
+	return $string
+}
+
 ### FILTER TEXTUAL OUTPUT ###
 proc out_latex {string {line -1}} {
 	global references
@@ -43,9 +56,8 @@ proc out_latex {string {line -1}} {
 		regsub -all "\\\]" $code_text "\\rbrack" code_text
 		regsub -all {\\} $code_text "\\textbackslash{}" code_text
 		regsub -all {\-\-} $code_text "-\\!-" code_text
-		regsub -all {<} $code_text "\\textless{}" code_text
-		regsub -all {>} $code_text "\\textgreater{}" code_text
-		regsub {([ \"\(])\'(.+?)\'([ \-\)\.\"\',:!?])} $string [seal_repl "$head_char\\texttt{$code_text}$tail_char"] string
+		set code_text [escape_latex $code_text]
+		regsub {([ \"\(])\'(.+?)\'([ \-\)\.\"\',:!?])} $string [seal_repl "$head_char\a\\texttt{$code_text}\b$tail_char"] string
 	}
 
 	# hexadecimal numbers
@@ -76,10 +88,15 @@ proc out_latex {string {line -1}} {
 				set linktext ""
 				regexp {^(\w+:[^ ]+)} $ref_text url
 				regexp {^(\w+:[^ ]+) - ([^\(]+)} $ref_text dummy dummy linktext
+
+				# replace characters forbidden in \url
+				regsub -all {\^} $url "\\^{ }" url
+				regsub -all {#} $url "\\#" url
+				regsub -all {%} $url "\\%" url
 				if {$linktext != ""} {
-					set replacement "\\href{$url}{$linktext}\\footnote{\\url{$url}}"
+					set replacement "\\href{\a$url\b}{$linktext}\a\\footnote{\\url{$url}}\b"
 				} else {
-					set replacement "\\url{$url}"
+					set replacement "\a\\url{$url}\b"
 				}
 			} elseif {[regexp {^\.\.\.$} $ref_text dummy]} {
 				set replacement "_citation_gap_"
@@ -92,40 +109,51 @@ proc out_latex {string {line -1}} {
 		regsub $ref_pattern $string [seal_repl $replacement] string
 	}
 
-	regsub -all {_citation_gap_} $string "\[\\ldots\{\}\]" string
-	regsub -all {"([\w\\])} $string "``\\1" string
-	regsub -all {([\.\?\!\w\}])"} $string "\\1''" string
-	regsub -all {\^} $string "\\^{ }" string
-	regsub -all {_} $string "\\_" string
-	regsub -all {#} $string "\\#" string
-	regsub -all {%} $string "\\%" string
-	regsub -all {\$} $string "\\$" string
-	regsub -all {&} $string {\\&} string
+	# trim string
 	regsub -all {^ *} $string "" string
 	regsub -all { *$} $string "" string
-	regsub -all {~} $string {\\textasciitilde{}} string
-	regsub -all {µ} $string "\$\\mu\$" string
+	regsub -all {_citation_gap_} $string "\[\\ldots\{\}\]" string
+	regsub -all {"([\a\w\\])} $string "``\\1" string
+	regsub -all {([\.\?\!\w\}\b])"} $string "\\1''" string
 
-	regsub -all {<->} $string "\$\\leftrightarrow\$" string
-	regsub -all -- {->} $string "\$\\rightarrow\$" string
-	regsub -all {<-} $string "\$\\leftarrow\$" string
-	regsub -all {<=>} $string "\$\\Leftrightarrow\$" string
-	regsub -all {=>} $string "\$\\Rightarrow\$" string
-	regsub -all {<=} $string "\$\\Leftarrow\$" string
+	##
+	# The following replacements are only applied to text not wrapped within
+	# \a and \b
+	##
 
-	regsub -all {\\<} $string "\\textbackslash<" string
-	regsub -all {\\>} $string "\\textbackslash>" string
-	regsub -all {<} $string "\\textless{}" string
-	regsub -all {>} $string "\\textgreater{}" string
+	set splitstring [split $string "\b"]
+	set string ""
+	foreach sub $splitstring {
+		regexp {([^\a]*)\a?(.*)} $sub dummy formatted raw
 
-	regsub -all {e\.g\.} $string "e.\\,g." string
-	regsub -all {i\.e\.} $string "i.\\,e." string
-	regsub -all {adamndunderlineshite!} $string "_" string
+		set formatted [escape_latex $formatted]
+		regsub -all {µ} $formatted "\$\\mu\$" formatted
 
-	set priv_function out_latex_private
-	if {[info procs $priv_function] == $priv_function} {
-		set string [eval "$priv_function [list $string]"]
+		regsub -all {<->} $formatted "\$\\leftrightarrow\$" formatted
+		regsub -all -- {->} $formatted "\$\\rightarrow\$" formatted
+		regsub -all {<-} $formatted "\$\\leftarrow\$" formatted
+		regsub -all {<=>} $formatted "\$\\Leftrightarrow\$" formatted
+		regsub -all {=>} $formatted "\$\\Rightarrow\$" formatted
+		regsub -all {<=} $formatted "\$\\Leftarrow\$" formatted
+
+		regsub -all {\\<} $formatted "\\textbackslash<" formatted
+		regsub -all {\\>} $formatted "\\textbackslash>" formatted
+		regsub -all {<} $formatted "\\textless{}" formatted
+		regsub -all {>} $formatted "\\textgreater{}" formatted
+
+		regsub -all {e\.g\.} $formatted "e.\\,g." formatted
+		regsub -all {i\.e\.} $formatted "i.\\,e." formatted
+		regsub -all {adamndunderlineshite!} $formatted "_" formatted
+
+		set priv_function out_latex_private
+		if {[info procs $priv_function] == $priv_function} {
+			set formatted [eval "$priv_function [list $formatted]"]
+		}
+
+		append string $formatted
+		append string $raw
 	}
+
 	return $string
 }
 
